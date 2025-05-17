@@ -1,0 +1,25 @@
+{
+  "name": "Mario Run - Earn Real Money",
+  "short_name": "Mario Run",
+  "description": "Play Mario Run and earn real money while having fun!",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#ff38a1",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "20250517_001646.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "20250517_001723.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+} 
