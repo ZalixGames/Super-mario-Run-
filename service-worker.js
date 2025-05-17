@@ -1,19 +1,20 @@
-const CACHE_NAME = 'mario-run-cache-v2'; // Updated Cache name for new version
+
+const CACHE_NAME = 'mario-run-cache-v3'; // Increment version for cache bust
 // List of files to cache - the "App Shell" and essential assets
 // MAKE SURE THESE PATHS ARE CORRECT relative to the service-worker.js file location (usually site root)
 const urlsToCache = [
   '/', // The root URL
-  '/index.html',
-  '/style.css', // Assuming you now have an external style.css
-  '/script.js', // Assuming you now have an external script.js
-  '/manifest.json',
-  // Audio files - Update paths if necessary
+  '/index.html', // The main HTML file
+  // CSS and JS are inline, so they are part of index.html and don't need separate caching entries here.
+  '/manifest.json', // The manifest file itself
+
+  // Audio files - Update paths if necessary (assuming they are at the root based on your HTML)
   '/mines background .mp3',
   '/gruntjumpland-101soundboards.mp3',
   '/coin-recieved-230517.mp3',
   '/game-over-arcade-6435.mp3',
-  // Images - Include all critical images needed for initial UI and game start
-  // Update paths if necessary
+
+  // Images (from Imgur/Wikimedia) - These are external, URLs should be correct
   'https://i.imgur.com/PCDgdlS.png', // coin icon
   'https://i.imgur.com/nxRZ03R.png', // sign-in background
   'https://i.imgur.com/KFWJlte.png', // main menu background
@@ -23,12 +24,15 @@ const urlsToCache = [
   'https://i.imgur.com/cMQ9X0d.png', // coin in game
   'https://i.imgur.com/06ptzal.png', // platform
   'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg', // Google Logo
-  // Include your app icons from the manifest
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
-  '/icons/icon-maskable-192x192.png',
-  '/icons/icon-maskable-512x512.png',
+
+  // Include your app icons from the manifest - Use the EXACT paths/filenames from your manifest
+  // Based on your provided manifest, they are in the root folder.
+  '20250517_001646.png',
+  '20250517_001723.png',
+
   // Add any other assets loaded synchronously or needed for the initial UI
+  // If you have other assets like sounds or images loaded later, consider adding them here
+  // or implementing a runtime caching strategy in the fetch event.
 ];
 
 // Installation event: Cache essential files
@@ -42,12 +46,20 @@ self.addEventListener('install', (event) => {
         return cache.addAll(urlsToCache)
           .then(() => {
              console.log('[Service Worker] All App Shell assets cached.');
+             // Force the waiting service worker to become the active service worker
+             self.skipWaiting(); // This is important for 'Add to Home Screen' to work immediately
           })
           .catch(error => {
-             console.error('[Service Worker] Failed to cache some assets:', error);
+             console.error('[Service Worker] Failed to cache some assets:', urlsToCache, error);
              // Note: If addAll fails for *any* URL, the service worker fails to install.
              // This is a strict requirement. Make sure paths in urlsToCache are correct
              // and resources are available.
+             // Log specific failure if possible
+             if (error instanceof Response) {
+                 console.error(`[Service Worker] Failed to cache ${error.url} with status ${error.status}`);
+             } else {
+                 console.error(`[Service Worker] Failed to cache due to network or other error: ${error}`);
+             }
              throw error; // Re-throw the error to indicate installation failure
           });
       })
@@ -76,7 +88,7 @@ self.addEventListener('activate', (event) => {
       .then(() => {
           console.log('[Service Worker] Old caches cleaned. Service Worker is now active.');
           // Take control of all clients (windows/tabs) under the service worker's scope immediately
-          return self.clients.claim();
+          return self.clients.claim(); // Important for the new SW to control clients immediately
       })
       .catch(error => {
          console.error('[Service Worker] Error during activation/cleanup:', error);
@@ -92,85 +104,43 @@ self.addEventListener('fetch', (event) => {
 
   // --- Strategy: Network Only for specific resources ---
   // Firebase/Database/Auth requests - always go to network
+  // Ad scripts/requests - always go to network, DO NOT CACHE
+  // These should not be cached by the service worker as they are dynamic or third-party ads.
   if (requestUrl.hostname.includes('firebaseio.com') ||
-      requestUrl.hostname.includes('googleapis.com') || // Could be Firebase auth related
-      requestUrl.hostname.includes('gstatic.com')) // Could be Firebase SDK or Google Logo from Imgur (handle separately if needed)
+      requestUrl.hostname.includes('googleapis.com') ||
+      requestUrl.hostname.includes('gstatic.com') ||
+      requestUrl.hostname.includes('profitableratecpm.com') ||
+      requestUrl.hostname.includes('highperformanceformat.com'))
   {
-       // Special case for Google Logo from Imgur - treat as Cache First if in urlsToCache
-      if (requestUrl.hostname.includes('imgur.com') && urlsToCache.some(url => requestUrl.href === new URL(url, self.location).href)) {
-           console.log('[Service Worker] Fetching Imgur Image (Cache First, then Network):', event.request.url);
-           event.respondWith(
-               caches.match(event.request).then(cachedResponse => {
-                   if (cachedResponse) {
-                       // console.log('[Service Worker] Cache hit (Imgur):', event.request.url);
-                       return cachedResponse;
-                   }
-                   // Not in cache, fetch from network and cache it
-                   return fetch(event.request).then(networkResponse => {
-                       if (!networkResponse || networkResponse.status !== 200) {
-                            console.warn('[Service Worker] Not caching Imgur response (non-200):', event.request.url, networkResponse.status);
-                            return networkResponse;
-                       }
-                       const responseToCache = networkResponse.clone();
-                       caches.open(CACHE_NAME).then(cache => {
-                           // console.log('[Service Worker] Caching Imgur resource:', event.request.url);
-                           cache.put(event.request, responseToCache);
-                       }).catch(cacheError => {
-                           console.warn('[Service Worker] Failed to cache Imgur response:', event.request.url, cacheError);
-                       });
-                       return networkResponse;
-                   }).catch(networkError => {
-                        console.warn('[Service Worker] Imgur Fetch failed:', event.request.url, networkError);
-                         // If fetch fails, maybe return a generic fallback image if available in cache
-                         // This requires you to have a fallback image AND cache it.
-                         // return caches.match('/images/fallback-image.png'); // Example fallback
-                         throw networkError; // Or let the error propagate
-                   });
-               })
-           );
-           return; // Stop processing this fetch event here
-      }
-
-      // Default for other Google/Firebase/Ad domains: Network Only
-      // Ad scripts/requests - always go to network, DO NOT CACHE
-      if (requestUrl.hostname.includes('profitableratecpm.com') || requestUrl.hostname.includes('highperformanceformat.com')) {
-           console.log('[Service Worker] Fetching Ad/External Script (Network Only):', event.request.url);
-           // Use event.respondWith with a simple fetch for network-only
-           event.respondWith(fetch(event.request).catch(error => {
-               console.warn('[Service Worker] Ad/External Script Fetch failed:', event.request.url, error);
-               // Let network failures for ads happen silently or handle in the main script
-               throw error; // Re-throw to avoid blocking other potential handlers (less common for SW)
-           }));
-           return; // Stop processing this fetch event here
-      }
-
-      // Other Firebase/Google APIs: Network Only
-       console.log('[Service Worker] Fetching Firebase/API (Network Only):', event.request.url);
+       console.log('[Service Worker] Fetching Firebase/API/Ad (Network Only):', event.request.url);
        event.respondWith(fetch(event.request).catch(error => {
-           console.warn('[Service Worker] Firebase/API Fetch failed:', event.request.url, error);
-           throw error; // Re-throw to let the app handle Firebase errors
+           console.warn('[Service Worker] Network Only Fetch failed:', event.request.url, error);
+           // For Firebase/APIs, re-throw the error so the main script can handle it.
+           // For Ads, maybe just log and let the request fail silently.
+           // Simple approach: just re-throw/let it fail.
+           throw error;
        }));
        return; // Stop processing this fetch event here
   }
 
-
   // --- Strategy: Cache First, then Network for App Shell and other static assets ---
-  // Determine if the request URL is in the list of cached assets (handle relative vs absolute URLs)
+  // Check if the requested URL is one of the core App Shell URLs or a static asset we want cached
+  // This prevents caching ALL random network requests (like ads or third-party pixels not explicitly listed)
    const isAppShell = urlsToCache.some(url => {
        try {
-           // Resolve the URL in urlsToCache relative to the service worker's scope
+           // Resolve the URL in urlsToCache relative to the service worker's scope (site root)
            const absoluteCachedUrl = new URL(url, self.location).href;
            // Compare it to the absolute requested URL
            return event.request.url === absoluteCachedUrl;
        } catch (e) {
-           console.error('[Service Worker] Error resolving URL in urlsToCache:', url, e);
+           console.error('[Service Worker] Error resolving URL in urlsToCache for fetch:', url, e);
            return false; // Treat as not part of the app shell if URL is invalid
        }
    });
 
 
   if (isAppShell) {
-      console.log('[Service Worker] Fetching App Shell Resource (Cache First, then Network):', event.request.url);
+      // console.log('[Service Worker] Fetching App Shell Resource (Cache First, then Network):', event.request.url);
       event.respondWith(
           caches.match(event.request)
               .then((cachedResponse) => {
@@ -187,7 +157,7 @@ self.addEventListener('fetch', (event) => {
                           // Check if we received a valid response to cache
                           // 'basic' type means same-origin request
                           if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-                               console.warn('[Service Worker] Not caching network response (invalid):', event.request.url, networkResponse?.status, networkResponse?.type);
+                               console.warn('[Service Worker] Not caching network response (invalid/non-basic):', event.request.url, networkResponse?.status, networkResponse?.type);
                               return networkResponse; // Don't cache invalid responses
                           }
 
@@ -209,11 +179,10 @@ self.addEventListener('fetch', (event) => {
                       })
                       .catch((networkError) => {
                           console.warn('[Service Worker] Fetch failed for App Shell resource:', event.request.url, networkError);
-                          // If fetching an App Shell resource fails and it wasn't in cache,
-                          // the user is likely offline or network is completely down.
-                          // This is where an offline fallback page or asset could be returned.
-                          // For now, re-throwing might be okay, letting browser handle the error.
-                          throw networkError; // Rethrow to indicate fetch failure
+                           // If a core app shell resource fails to load from network AND isn't in cache,
+                           // the user might be offline. Consider returning a simple offline page.
+                           // For this example, just let it fail or return a cached index.html as fallback
+                           return caches.match('/index.html'); // Fallback to cached index.html
                       });
               })
                .catch(cacheError => {
@@ -223,22 +192,20 @@ self.addEventListener('fetch', (event) => {
                })
       );
   } else {
-      // For all other requests not explicitly in urlsToCache (dynamic content, etc.)
-      // Default to Network First strategy: try network, if offline, try cache
+      // For all other requests not explicitly listed in urlsToCache (dynamic content, other assets)
+      // Default to Network First, then Cache strategy: try network, if offline, try cache
        // console.log('[Service Worker] Fetching Other Resource (Network First, then Cache):', event.request.url);
        event.respondWith(
            fetch(event.request).then(networkResponse => {
                // If network fetch is successful, return it.
-               // Optional: Cache successful responses for later use (e.g., gameplay assets loaded on demand)
+               // Optionally cache successful responses for later use (e.g., gameplay assets loaded on demand)
                // Be mindful of cache size and what makes sense to cache here.
-               // if (networkResponse.status === 200 && networkResponse.type === 'basic') {
-               //    const responseToCache = networkResponse.clone();
-               //    caches.open(CACHE_NAME).then(cache => {
-               //        console.log('[Service Worker] Caching non-app-shell resource:', event.request.url);
-               //        cache.put(event.request, responseToCache);
-               //    });
-               // }
-               return networkResponse;
+               // const responseToCache = networkResponse.clone();
+               // caches.open(CACHE_NAME).then(cache => {
+               //    console.log('[Service Worker] Caching non-app-shell resource:', event.request.url);
+               //    cache.put(event.request, responseToCache);
+               // });
+               return networkResponse; // Return the network response
            }).catch(networkError => {
                console.warn('[Service Worker] Network fetch failed (Network First):', event.request.url, networkError);
                // If network fails, try the cache
@@ -262,4 +229,3 @@ self.addEventListener('fetch', (event) => {
 
 // Optional: Handle background sync (requires registering in main script)
 // self.addEventListener('sync', (event) => { /* ... */ });
-                        
