@@ -2,7 +2,7 @@
   "name": "Mario Run - Earn Money",
   "short_name": "Mario Run",
   "description": "Play Mario Run, earn coins, and withdraw real money!",
-  "start_url": "https://zalixgames.github.io/Super-mario-Run-/",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",
   "theme_color": "#ff38a1",
